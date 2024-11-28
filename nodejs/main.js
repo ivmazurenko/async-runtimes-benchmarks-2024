@@ -1,5 +1,4 @@
 const util = require('util');
-
 const delay = util.promisify(setTimeout);
 
 async function runTasks(numTasks) {
@@ -10,12 +9,7 @@ async function runTasks(numTasks) {
   }
 
   await Promise.all(tasks);
-
-  console.log('All tasks completed');
 }
 
-const numTasks = parseInt(process.argv[2]) || 10000;
-
-runTasks(numTasks).catch((error) => {
-  console.error('Error:', error);
-});
+const numTasks = parseInt(process.argv[2]);
+runTasks(numTasks);
