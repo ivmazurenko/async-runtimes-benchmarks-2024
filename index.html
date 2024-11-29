@@ -489,6 +489,119 @@ List&lt;Task&gt; tasks = <span class="hljs-keyword">new</span> List&lt;Task&gt;(
 <h2 id="final-word">Final Word</h2>
 <p>As we have observed, a high number of concurrent tasks can consume a significant amount of memory, even if they do not perform complex operations. Different language runtimes have varying trade-offs, with some being lightweight and efficient for a small number of tasks but scaling poorly with hundreds of thousands of tasks.</p>
 <p>Many things have changed since last year. With the benchmark results on the latest compilers and runtimes, we see a huge improvement in .NET, and .NET with NativeAOT is really competitive with Rust. The native image of Java built with GraalVM also did a great job in terms of memory efficiency. However, goroutines continue to be inefficient in resource consumption.</p>
+<h2 id="appendix">Appendix</h2>
+<p>Some folks pointed out that in Rust (tokio) it can use a loop iterating over the <code>Vec</code> instead of <code>join_all</code> to avoid the resize to the list introduced by <code>join_all</code>. So I added a new test case <code>Rust (tokio-for)</code> here:</p>
+<pre><code class="language-rust"><span class="hljs-keyword">use</span> std::env;
+<span class="hljs-keyword">use</span> tokio::time::{sleep, Duration};
+
+<span class="hljs-meta">#[tokio::main]</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">main</span>() {
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">args</span>: <span class="hljs-type">Vec</span>&lt;<span class="hljs-type">String</span>&gt; = env::<span class="hljs-title function_ invoke__">args</span>().<span class="hljs-title function_ invoke__">collect</span>();
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">num_tasks</span> = args[<span class="hljs-number">1</span>].parse::&lt;<span class="hljs-type">i32</span>&gt;().<span class="hljs-title function_ invoke__">unwrap</span>();
+    <span class="hljs-keyword">let</span> <span class="hljs-keyword">mut </span><span class="hljs-variable">tasks</span> = Vec::<span class="hljs-title function_ invoke__">new</span>();
+    <span class="hljs-keyword">for</span> <span class="hljs-variable">_</span> <span class="hljs-keyword">in</span> <span class="hljs-number">0</span>..num_tasks {
+        tasks.<span class="hljs-title function_ invoke__">push</span>(<span class="hljs-title function_ invoke__">sleep</span>(Duration::<span class="hljs-title function_ invoke__">from_secs</span>(<span class="hljs-number">10</span>)));
+    }
+    <span class="hljs-keyword">for</span> <span class="hljs-variable">task</span> <span class="hljs-keyword">in</span> tasks {
+        task.<span class="hljs-keyword">await</span>;
+    }
+}
+</code></pre>
+<p>Note that this won't work for <code>async_std</code> as it needs you to poll explicitly until the task being scheduled and executed, so switching to a loop will make it run the tasks sequentially.</p>
+<p>Let's see what will happen with the new test code.</p>
+<h3 id="minimum-footprint-1">Minimum Footprint</h3>
+<div style="height:40vh; width:80vw">
+  <canvas id="mem-minimum-new">
+  </canvas>
+</div>
+<script>
+  const ctx1_new = document.getElementById('mem-minimum-new');
+
+  new Chart(ctx1_new, {
+    type: 'bar',
+    data: {
+      labels: ['Rust (tokio)', 'Rust (tokio-for)', 'Rust (async_std)', 'C#', 'C# (NativeAOT)', 'Go', 'Java (OpenJDK)', 'Java (GraalVM)', 'Java (GraalVM native-image)', 'NodeJS', 'Python'],
+      datasets: [{
+        label: 'Memory (KB)',
+        data: [4968, 3228, 5384, 25008, 3924, 3644, 46304, 111464, 8552, 43320, 20536],
+        borderWidth: 1
+      }]
+    },
+    options: {
+        indexAxis: 'y',
+    }
+  });
+</script>
+<h3 id="10k-tasks-1">10K Tasks</h3>
+<div style="height:40vh; width:80vw">
+  <canvas id="mem-10k-new">
+  </canvas>
+</div>
+<script>
+  const ctx2_new = document.getElementById('mem-10k-new');
+
+  new Chart(ctx2_new, {
+    type: 'bar',
+    data: {
+      labels: ['Rust (tokio)', 'Rust (tokio-for)', 'Rust (async_std)', 'C#', 'C# (NativeAOT)', 'Go', 'Java (OpenJDK)', 'Java (GraalVM)', 'Java (GraalVM native-image)', 'NodeJS', 'Python'],
+      datasets: [{
+        label: 'Memory (KB)',
+        data: [8232, 3924, 5912, 29208, 10172, 32752, 111444, 198548, 27616, 66920, 34260],
+        borderWidth: 1
+      }]
+    },
+    options: {
+        indexAxis: 'y',
+    }
+  });
+</script>
+<h3 id="100k-tasks-1">100K Tasks</h3>
+<div style="height:40vh; width:80vw">
+  <canvas id="mem-100k-new">
+  </canvas>
+</div>
+<script>
+  const ctx3_new = document.getElementById('mem-100k-new');
+
+  new Chart(ctx3_new, {
+    type: 'bar',
+    data: {
+      labels: ['Rust (tokio)', 'Rust (tokio-for)', 'Rust (async_std)', 'C#', 'C# (NativeAOT)', 'Go', 'Java (OpenJDK)', 'Java (GraalVM)', 'Java (GraalVM native-image)', 'NodeJS', 'Python'],
+      datasets: [{
+        label: 'Memory (KB)',
+        data: [37192, 16800, 32128, 52112, 31728, 270708, 199032, 496812, 105312, 131588, 150264],
+        borderWidth: 1
+      }]
+    },
+    options: {
+        indexAxis: 'y',
+    }
+  });
+</script>
+<h3 id="1m-tasks">1M Tasks</h3>
+<div style="height:40vh; width:80vw">
+  <canvas id="mem-1m-new">
+  </canvas>
+</div>
+<script>
+  const ctx4_new = document.getElementById('mem-1m-new');
+
+  new Chart(ctx4_new, {
+    type: 'bar',
+    data: {
+      labels: ['Rust (tokio)', 'Rust (tokio-for)', 'Rust (async_std)', 'C#', 'C# (NativeAOT)', 'Go', 'Java (OpenJDK)', 'Java (GraalVM)', 'Java (GraalVM native-image)', 'NodeJS', 'Python'],
+      datasets: [{
+        label: 'Memory (KB)',
+        data: [326664, 123716, 302340, 223436, 203448, 2641592, 1117640, 1570300, 1070396, 584852, 1308136],
+        borderWidth: 1
+      }]
+    },
+    options: {
+        indexAxis: 'y',
+    }
+  });
+</script>
+<p>This shrinks the cost of <code>Rust (tokio)</code> by about a half, which makes Rust the absolute lead in this benchmark. Good job, Rust.</p>
 
             
             <script async type="text/javascript">
