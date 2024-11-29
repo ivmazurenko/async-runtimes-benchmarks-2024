@@ -342,3 +342,136 @@ The distance between Go and the others increased. Now Go loses by over 13 times 
 As we have observed, a high number of concurrent tasks can consume a significant amount of memory, even if they do not perform complex operations. Different language runtimes have varying trade-offs, with some being lightweight and efficient for a small number of tasks but scaling poorly with hundreds of thousands of tasks.
 
 Many things have changed since last year. With the benchmark results on the latest compilers and runtimes, we see a huge improvement in .NET, and .NET with NativeAOT is really competitive with Rust. The native image of Java built with GraalVM also did a great job in terms of memory efficiency. However, goroutines continue to be inefficient in resource consumption.
+
+## Appendix
+
+Some folks pointed out that in Rust (tokio) it can use a loop iterating over the `Vec` instead of `join_all` to avoid the resize to the list introduced by `join_all`. So I added a new test case `Rust (tokio-for)` here:
+
+```rust
+use std::env;
+use tokio::time::{sleep, Duration};
+
+#[tokio::main]
+async fn main() {
+    let args: Vec<String> = env::args().collect();
+    let num_tasks = args[1].parse::<i32>().unwrap();
+    let mut tasks = Vec::new();
+    for _ in 0..num_tasks {
+        tasks.push(sleep(Duration::from_secs(10)));
+    }
+    for task in tasks {
+        task.await;
+    }
+}
+```
+
+Note that this won't work for `async_std` as it needs you to poll explicitly until the task being scheduled and executed, so switching to a loop will make it run the tasks sequentially. 
+
+Let's see what will happen with the new test code.
+
+### Minimum Footprint
+
+<div style="height:40vh; width:80vw">
+  <canvas id="mem-minimum-new">
+  </canvas>
+</div>
+
+<script>
+  const ctx1_new = document.getElementById('mem-minimum-new');
+
+  new Chart(ctx1_new, {
+    type: 'bar',
+    data: {
+      labels: ['Rust (tokio)', 'Rust (tokio-for)', 'Rust (async_std)', 'C#', 'C# (NativeAOT)', 'Go', 'Java (OpenJDK)', 'Java (GraalVM)', 'Java (GraalVM native-image)', 'NodeJS', 'Python'],
+      datasets: [{
+        label: 'Memory (KB)',
+        data: [4968, 3228, 5384, 25008, 3924, 3644, 46304, 111464, 8552, 43320, 20536],
+        borderWidth: 1
+      }]
+    },
+    options: {
+        indexAxis: 'y',
+    }
+  });
+</script>
+
+### 10K Tasks
+
+<div style="height:40vh; width:80vw">
+  <canvas id="mem-10k-new">
+  </canvas>
+</div>
+
+<script>
+  const ctx2_new = document.getElementById('mem-10k-new');
+
+  new Chart(ctx2_new, {
+    type: 'bar',
+    data: {
+      labels: ['Rust (tokio)', 'Rust (tokio-for)', 'Rust (async_std)', 'C#', 'C# (NativeAOT)', 'Go', 'Java (OpenJDK)', 'Java (GraalVM)', 'Java (GraalVM native-image)', 'NodeJS', 'Python'],
+      datasets: [{
+        label: 'Memory (KB)',
+        data: [8232, 3924, 5912, 29208, 10172, 32752, 111444, 198548, 27616, 66920, 34260],
+        borderWidth: 1
+      }]
+    },
+    options: {
+        indexAxis: 'y',
+    }
+  });
+</script>
+
+### 100K Tasks
+
+<div style="height:40vh; width:80vw">
+  <canvas id="mem-100k-new">
+  </canvas>
+</div>
+
+<script>
+  const ctx3_new = document.getElementById('mem-100k-new');
+
+  new Chart(ctx3_new, {
+    type: 'bar',
+    data: {
+      labels: ['Rust (tokio)', 'Rust (tokio-for)', 'Rust (async_std)', 'C#', 'C# (NativeAOT)', 'Go', 'Java (OpenJDK)', 'Java (GraalVM)', 'Java (GraalVM native-image)', 'NodeJS', 'Python'],
+      datasets: [{
+        label: 'Memory (KB)',
+        data: [37192, 16800, 32128, 52112, 31728, 270708, 199032, 496812, 105312, 131588, 150264],
+        borderWidth: 1
+      }]
+    },
+    options: {
+        indexAxis: 'y',
+    }
+  });
+</script>
+
+### 1M Tasks
+
+<div style="height:40vh; width:80vw">
+  <canvas id="mem-1m-new">
+  </canvas>
+</div>
+
+<script>
+  const ctx4_new = document.getElementById('mem-1m-new');
+
+  new Chart(ctx4_new, {
+    type: 'bar',
+    data: {
+      labels: ['Rust (tokio)', 'Rust (tokio-for)', 'Rust (async_std)', 'C#', 'C# (NativeAOT)', 'Go', 'Java (OpenJDK)', 'Java (GraalVM)', 'Java (GraalVM native-image)', 'NodeJS', 'Python'],
+      datasets: [{
+        label: 'Memory (KB)',
+        data: [326664, 123716, 302340, 223436, 203448, 2641592, 1117640, 1570300, 1070396, 584852, 1308136],
+        borderWidth: 1
+      }]
+    },
+    options: {
+        indexAxis: 'y',
+    }
+  });
+</script>
+
+
+This shrinks the cost of `Rust (tokio)` by about a half, which makes Rust the absolute lead in this benchmark. Good job, Rust.
